@@ -1,16 +1,18 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Building2, CheckCircle2, CircleAlert, Database, Download, ExternalLink, KeyRound, MapPin, Phone, Search, Settings2, SlidersHorizontal, Sparkles, Trash2 } from "lucide-react";
+import { Building2, Check, CheckCircle2, ChevronsUpDown, CircleAlert, Database, Download, ExternalLink, KeyRound, MapPin, Phone, Search, Settings2, SlidersHorizontal, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -27,6 +29,8 @@ const normalize = (value: string) => value.trim().toLocaleLowerCase("ru-RU").rep
 export default function Home() {
   const [city, setCity] = useState("Москва");
   const [category, setCategory] = useState("Кафе");
+  const [categoryOpen, setCategoryOpen] = useState(false);
+  const [categorySearch, setCategorySearch] = useState("");
   const [limit, setLimit] = useState("50");
   const [apiKey, setApiKey] = useState("");
   const [keyDraft, setKeyDraft] = useState("");
@@ -99,7 +103,7 @@ export default function Home() {
       <div className="mb-7 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><Badge variant="outline" className="mb-3 rounded-full border-primary/20 bg-primary/5 text-primary"><Sparkles className="size-3.5" /> Официальный API Яндекс Карт</Badge><h1 className="text-3xl font-black tracking-[-0.04em] sm:text-4xl">Компании без сайта</h1><p className="mt-2 max-w-2xl text-base text-muted-foreground">Найдите организации в нужном городе, отфильтруйте карточки с сайтом и выгрузите готовый список.</p></div><div className="flex items-center gap-2 text-sm text-muted-foreground"><span className={`size-2 rounded-full ${apiKey ? "bg-emerald-500" : "bg-amber-400"}`} />{apiKey ? "Ключ готов" : "Нужен API-ключ"}</div></div>
       <form onSubmit={runSearch} className="mb-6 rounded-3xl bg-[linear-gradient(135deg,#123b32,#092923)] p-5 text-white shadow-[0_22px_70px_rgba(10,46,38,.20)] sm:p-7"><div className="mb-5 flex items-center gap-2 text-sm font-semibold text-white/70"><SlidersHorizontal className="size-4" /> Параметры поиска</div><div className="grid gap-4 lg:grid-cols-[1fr_1.15fr_170px_auto] lg:items-end">
         <div className="space-y-2"><Label htmlFor="city" className="text-white/70">Город</Label><div className="relative"><MapPin className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-500" /><Input id="city" value={city} onChange={(event) => setCity(event.target.value)} className="h-11 border-white/15 bg-white pl-10 text-slate-950" /></div></div>
-        <div className="space-y-2"><Label htmlFor="category" className="text-white/70">Категория или услуга</Label><Input id="category" value={category} onChange={(event) => setCategory(event.target.value)} list="category-list" placeholder="Выберите или введите свою" className="h-11 border-white/15 bg-white text-slate-950" /><datalist id="category-list">{categories.map((item) => <option value={item} key={item} />)}</datalist><p className="text-xs text-white/55">{categories.length} проверенных вариантов + свободный ввод</p></div>
+        <div className="space-y-2"><Label className="text-white/70">Категория или услуга</Label><Popover open={categoryOpen} onOpenChange={(open) => { setCategoryOpen(open); if (open) setCategorySearch(""); }}><PopoverTrigger asChild><Button type="button" variant="outline" role="combobox" aria-expanded={categoryOpen} className="h-11 w-full justify-between border-white/15 bg-white px-3 font-normal text-slate-950 hover:bg-white">{category || <span className="text-muted-foreground">Выберите категорию</span>}<ChevronsUpDown className="size-4 opacity-50" /></Button></PopoverTrigger><PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-0"><Command shouldFilter><CommandInput value={categorySearch} onValueChange={setCategorySearch} placeholder="Найти или ввести свою…" onKeyDown={(event) => { if (event.key === "Enter" && categorySearch.trim()) { event.preventDefault(); setCategory(categorySearch.trim()); setCategoryOpen(false); } }} /><CommandList><CommandEmpty><button type="button" className="w-full px-3 py-2 text-left" onClick={() => { setCategory(categorySearch.trim()); setCategoryOpen(false); }}>Использовать «{categorySearch}»</button></CommandEmpty><CommandGroup heading={`Все категории (${categories.length})`}>{categories.map((item) => <CommandItem key={item} value={item} onSelect={() => { setCategory(item); setCategoryOpen(false); }}><Check className={`size-4 ${category === item ? "opacity-100" : "opacity-0"}`} />{item}</CommandItem>)}</CommandGroup></CommandList></Command></PopoverContent></Popover><p className="text-xs text-white/55">Откройте список или начните печатать свою услугу</p></div>
         <div className="space-y-2"><Label className="text-white/70">Проверить карточек</Label><Select value={limit} onValueChange={setLimit}><SelectTrigger className="h-11 w-full border-white/15 bg-white text-slate-950"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="10">10</SelectItem><SelectItem value="25">25</SelectItem><SelectItem value="50">50</SelectItem></SelectContent></Select></div>
         <Button disabled={loading} size="lg" className="h-11 rounded-xl bg-[#d8ff52] px-7 font-extrabold text-[#123b32] hover:bg-[#c9ef48]"><Search /> {loading ? "Ищем…" : "Найти"}</Button>
       </div>{loading && <div className="mt-5"><Progress value={progress} className="h-1.5 bg-white/15" /><p className="mt-2 text-xs text-white/60">Получаем карточки и проверяем поле сайта…</p></div>}</form>
