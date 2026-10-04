@@ -21,7 +21,12 @@ export async function POST(request: Request) {
     url.searchParams.set("type", "biz");
     url.searchParams.set("lang", "ru_RU");
     url.searchParams.set("results", String(results));
-    const response = await fetch(url, { headers: { accept: "application/json" } });
+    const requestReferer = request.headers.get("referer");
+    let referer: string | undefined;
+    if (requestReferer) {
+      try { referer = `${new URL(requestReferer).origin}/`; } catch { referer = undefined; }
+    }
+    const response = await fetch(url, { headers: { accept: "application/json", ...(referer ? { referer } : {}) } });
     const raw = await response.text();
     let payload: YandexResponse = {};
     try {
@@ -31,7 +36,7 @@ export async function POST(request: Request) {
     }
     if (!response.ok) {
       const message = response.status === 403
-        ? "Яндекс вернул 403: ключ пока не распознан сервисом. Новый ключ активируется до 15 минут. Если время прошло — создайте ключ именно для «API Поиска по организациям» и проверьте ограничения ключа."
+        ? "Яндекс вернул 403: ключ не распознан сервисом. Проверьте, что он привязан к «API Поиска по организациям». Новый ключ активируется до 15 минут; при ограничении по домену разрешите текущий домен без протокола и порта."
         : response.status === 429
           ? "Превышен лимит запросов Яндекс API. Повторите позже."
           : payload.message || `Яндекс API вернул ошибку ${response.status}`;
