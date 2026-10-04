@@ -3,6 +3,8 @@
 # dependencies
 /node_modules
 /.npm-cache/
+/data/company-store.json
+/data/company-store.json.tmp
 /.pnp
 .pnp.*
 .yarn/*

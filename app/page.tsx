@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Building2, Check, CheckCircle2, ChevronsUpDown, CircleAlert, Database, Download, ExternalLink, KeyRound, MapPin, Phone, Search, Settings2, SlidersHorizontal, Sparkles, Trash2 } from "lucide-react";
+import { Building2, Check, CheckCircle2, ChevronsUpDown, CircleAlert, Database, Download, ExternalLink, KeyRound, MapPin, Phone, Search, Settings2, SlidersHorizontal, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -20,11 +20,8 @@ import { Toaster } from "@/components/ui/sonner";
 import { categories } from "@/lib/categories";
 
 type Company = { id: string; name: string; address: string; postalCode: string; categories: string[]; phones: string[]; hours: string; coordinates: [number, number] | null; mapsUrl: string };
+type StoredCompany = Company & { cities: string[]; searchCategories: string[]; firstSeenAt: string; lastCheckedAt: string };
 type SearchResult = { companies: Company[]; scanned: number; totalFound: number; withoutWebsite: number; query: string; usedServerKey: boolean; cached?: boolean; checkedAt?: string };
-type CacheState = { searches: Record<string, SearchResult>; companies: Record<string, Company> };
-const CACHE_KEY = "netsaita:verified:v1";
-const emptyCache = (): CacheState => ({ searches: {}, companies: {} });
-const normalize = (value: string) => value.trim().toLocaleLowerCase("ru-RU").replace(/\s+/g, " ");
 
 export default function Home() {
   const [city, setCity] = useState("Москва");
@@ -41,43 +38,32 @@ export default function Home() {
   const [error, setError] = useState("");
   const [result, setResult] = useState<SearchResult | null>(null);
   const [selected, setSelected] = useState<Company | null>(null);
-  const [cache, setCache] = useState<CacheState>(emptyCache);
-  const [cacheReady, setCacheReady] = useState(false);
+  const [savedCompanies, setSavedCompanies] = useState<StoredCompany[]>([]);
+  const [savedSearch, setSavedSearch] = useState("");
+  const [savedCategory, setSavedCategory] = useState("all");
+  const [savedSort, setSavedSort] = useState("newest");
   const phoneCount = useMemo(() => result?.companies.filter((company) => company.phones.length > 0).length ?? 0, [result]);
+  const savedCategories = useMemo(() => Array.from(new Set(savedCompanies.flatMap((company) => company.categories))).sort((a, b) => a.localeCompare(b, "ru")), [savedCompanies]);
+  const visibleSavedCompanies = useMemo(() => savedCompanies.filter((company) => {
+    const text = `${company.name} ${company.address} ${company.phones.join(" ")}`.toLocaleLowerCase("ru-RU");
+    return (!savedSearch.trim() || text.includes(savedSearch.trim().toLocaleLowerCase("ru-RU"))) && (savedCategory === "all" || company.categories.includes(savedCategory));
+  }).sort((a, b) => savedSort === "name" ? a.name.localeCompare(b.name, "ru") : savedSort === "oldest" ? a.firstSeenAt.localeCompare(b.firstSeenAt) : b.lastCheckedAt.localeCompare(a.lastCheckedAt)), [savedCompanies, savedSearch, savedCategory, savedSort]);
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      try { const saved = localStorage.getItem(CACHE_KEY); if (saved) setCache(JSON.parse(saved) as CacheState); } catch { localStorage.removeItem(CACHE_KEY); }
-      setCacheReady(true);
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  function persistCache(next: CacheState) { setCache(next); localStorage.setItem(CACHE_KEY, JSON.stringify(next)); }
-  function cacheId() { return `${normalize(city)}::${normalize(category)}::${limit}`; }
+  async function loadSavedCompanies() { const response = await fetch("/api/companies", { cache: "no-store" }); if (response.ok) setSavedCompanies(((await response.json()) as { companies: StoredCompany[] }).companies); }
+  useEffect(() => { const timer = window.setTimeout(() => void loadSavedCompanies(), 0); return () => window.clearTimeout(timer); }, []);
 
   async function runSearch(event?: FormEvent) {
     event?.preventDefault();
     if (!city.trim() || !category.trim()) return toast.error("Укажите город и категорию");
-    const saved = cache.searches[cacheId()];
-    if (saved) { setResult({ ...saved, cached: true }); setError(""); toast.success("Показаны уже проверенные данные — запрос к API не выполнен"); return; }
     setLoading(true); setError(""); setResult(null); setProgress(18);
     const timer = window.setInterval(() => setProgress((value) => Math.min(value + Math.ceil((92 - value) / 4), 92)), 350);
     try {
       const response = await fetch("/api/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ city: city.trim(), category: category.trim(), results: Number(limit), apiKey: apiKey.trim() || undefined }) });
       const payload = (await response.json()) as SearchResult & { error?: string; code?: string };
       if (!response.ok) { if (payload.code === "API_KEY_REQUIRED") setKeyDialogOpen(true); if (payload.code === "YANDEX_403") setKeyValidated(false); throw new Error(payload.error || "Не удалось выполнить поиск"); }
-      const checked = { ...payload, checkedAt: new Date().toISOString(), cached: false };
-      const nextCompanies = { ...cache.companies };
-      checked.companies.forEach((company) => { nextCompanies[company.id] = company; });
-      persistCache({ companies: nextCompanies, searches: { ...cache.searches, [cacheId()]: checked } });
-      setKeyValidated(true); setResult(checked); setProgress(100); toast.success(`Найдено без сайта: ${payload.withoutWebsite}. Результат сохранён.`);
+      setKeyValidated(true); setResult(payload); await loadSavedCompanies(); setProgress(100); toast.success(payload.cached ? "Показаны сохранённые данные — запрос к API не выполнен" : `Найдено без сайта: ${payload.withoutWebsite}. Результат сохранён.`);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Неизвестная ошибка"); }
     finally { window.clearInterval(timer); window.setTimeout(() => setProgress(0), 450); setLoading(false); }
-  }
-
-  function clearCache() {
-    localStorage.removeItem(CACHE_KEY); setCache(emptyCache()); setResult(null); toast.success("Сохранённые проверки удалены");
   }
 
   function saveKey() {
@@ -109,14 +95,14 @@ export default function Home() {
         <Button disabled={loading} size="lg" className="h-11 rounded-xl bg-[#d8ff52] px-7 font-extrabold text-[#123b32] hover:bg-[#c9ef48]"><Search /> {loading ? "Ищем…" : "Найти"}</Button>
       </div>{loading && <div className="mt-5"><Progress value={progress} className="h-1.5 bg-white/15" /><p className="mt-2 text-xs text-white/60">Получаем карточки и проверяем поле сайта…</p></div>}</form>
       {error && <Alert variant="destructive" className="mb-6 rounded-2xl"><CircleAlert /><AlertTitle>Поиск не выполнен</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
-      <section className="grid gap-3 sm:grid-cols-4"><Metric label="Проверено карточек" value={result?.scanned ?? "—"} /><Metric label="Без сайта" value={result?.withoutWebsite ?? "—"} accent /><Metric label="С телефоном" value={result ? phoneCount : "—"} /><Metric label="Сохранено уникальных" value={cacheReady ? Object.keys(cache.companies).length : "—"} /></section>
+      <section className="grid gap-3 sm:grid-cols-4"><Metric label="Проверено карточек" value={result?.scanned ?? "—"} /><Metric label="Без сайта" value={result?.withoutWebsite ?? "—"} accent /><Metric label="С телефоном" value={result ? phoneCount : "—"} /><Metric label="Сохранено уникальных" value={savedCompanies.length} /></section>
       <Card className="mt-6 overflow-hidden rounded-3xl border-border/80 py-0 shadow-sm"><div className="flex flex-col gap-3 border-b px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6"><div><h2 className="font-extrabold">Результаты</h2><p className="text-sm text-muted-foreground">{result ? `Запрос «${result.query}» · Яндекс нашёл ${result.totalFound}` : "Запустите поиск, чтобы получить реальные организации"}</p></div><Button variant="outline" onClick={exportCsv} disabled={!result?.companies.length} className="rounded-xl"><Download /> Скачать CSV</Button></div><CardContent className="p-0">
-        {result?.cached && <Alert className="m-4 border-emerald-200 bg-emerald-50 text-emerald-950 sm:m-6"><Database /><AlertTitle>Результат из локального хранилища</AlertTitle><AlertDescription>Повторный запрос к Яндексу не выполнялся. Проверено {result.checkedAt ? new Date(result.checkedAt).toLocaleString("ru-RU") : "ранее"}.</AlertDescription></Alert>}
+        {result?.cached && <Alert className="m-4 border-emerald-200 bg-emerald-50 text-emerald-950 sm:m-6"><Database /><AlertTitle>Результат из серверной базы</AlertTitle><AlertDescription>Повторный запрос к Яндексу не выполнялся. Проверено {result.checkedAt ? new Date(result.checkedAt).toLocaleString("ru-RU") : "ранее"}.</AlertDescription></Alert>}
         {!result && !loading && <EmptyState hasKey={Boolean(apiKey)} onKey={() => setKeyDialogOpen(true)} />}
         {result && result.companies.length === 0 && <div className="grid min-h-64 place-items-center px-6 text-center"><div><CheckCircle2 className="mx-auto mb-3 size-8 text-emerald-500" /><p className="font-bold">В этой выдаче все компании указали сайт</p><p className="mt-1 text-sm text-muted-foreground">Попробуйте другую категорию или более широкий запрос.</p></div></div>}
         {result && result.companies.length > 0 && <div className="overflow-x-auto"><Table><TableHeader><TableRow className="bg-muted/50"><TableHead className="pl-6">Компания</TableHead><TableHead>Категория</TableHead><TableHead>Телефон</TableHead><TableHead>Режим работы</TableHead><TableHead className="pr-6 text-right">Карточка</TableHead></TableRow></TableHeader><TableBody>{result.companies.map((company) => <TableRow key={company.id} className="cursor-pointer" onClick={() => setSelected(company)}><TableCell className="min-w-72 pl-6"><div className="font-bold">{company.name}</div><div className="mt-1 max-w-md text-sm text-muted-foreground">{company.address}</div></TableCell><TableCell className="min-w-48"><Badge variant="secondary" className="font-medium">{company.categories[0] || "Без категории"}</Badge></TableCell><TableCell className="min-w-44">{company.phones[0] || <span className="text-muted-foreground">Не указан</span>}</TableCell><TableCell className="min-w-48">{company.hours || <span className="text-muted-foreground">Не указан</span>}</TableCell><TableCell className="pr-6 text-right"><Button variant="ghost" size="icon-sm" asChild onClick={(event) => event.stopPropagation()}><a href={company.mapsUrl} target="_blank" rel="noreferrer" aria-label={`Открыть ${company.name} в Яндекс Картах`}><ExternalLink /></a></Button></TableCell></TableRow>)}</TableBody></Table></div>}
       </CardContent></Card>
-      {Object.keys(cache.searches).length > 0 && <div className="mt-4 flex items-center justify-between rounded-2xl border bg-muted/25 px-4 py-3 text-sm"><div className="flex items-center gap-2 text-muted-foreground"><Database className="size-4" /> Сохранено поисков: {Object.keys(cache.searches).length}</div><Button variant="ghost" size="sm" onClick={clearCache}><Trash2 /> Очистить историю</Button></div>}
+      <Card className="mt-6 overflow-hidden rounded-3xl border-border/80 py-0 shadow-sm"><div className="border-b px-5 py-5 sm:px-6"><div className="flex items-center gap-2"><Database className="size-5 text-primary" /><h2 className="font-extrabold">База сохранённых компаний</h2></div><p className="mt-1 text-sm text-muted-foreground">{visibleSavedCompanies.length} из {savedCompanies.length} уникальных компаний</p><div className="mt-4 grid gap-3 md:grid-cols-[1fr_240px_190px]"><Input value={savedSearch} onChange={(event) => setSavedSearch(event.target.value)} placeholder="Название, адрес или телефон" /><Select value={savedCategory} onValueChange={setSavedCategory}><SelectTrigger className="w-full"><SelectValue placeholder="Все категории" /></SelectTrigger><SelectContent><SelectItem value="all">Все категории</SelectItem>{savedCategories.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select><Select value={savedSort} onValueChange={setSavedSort}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="newest">Сначала новые</SelectItem><SelectItem value="oldest">Сначала старые</SelectItem><SelectItem value="name">По названию</SelectItem></SelectContent></Select></div></div><CardContent className="p-0">{visibleSavedCompanies.length === 0 ? <div className="grid min-h-40 place-items-center text-sm text-muted-foreground">Сохранённых компаний пока нет</div> : <div className="max-h-[560px] overflow-auto"><Table><TableHeader><TableRow className="bg-muted/50"><TableHead className="pl-6">Компания</TableHead><TableHead>Категории</TableHead><TableHead>Город</TableHead><TableHead>Телефон</TableHead><TableHead className="pr-6 text-right">Карточка</TableHead></TableRow></TableHeader><TableBody>{visibleSavedCompanies.map((company) => <TableRow key={company.id} className="cursor-pointer" onClick={() => setSelected(company)}><TableCell className="pl-6"><div className="font-bold">{company.name}</div><div className="text-sm text-muted-foreground">{company.address}</div></TableCell><TableCell>{company.categories[0] || "—"}</TableCell><TableCell>{company.cities.join(", ")}</TableCell><TableCell>{company.phones[0] || "—"}</TableCell><TableCell className="pr-6 text-right"><Button variant="ghost" size="icon-sm" asChild onClick={(event) => event.stopPropagation()}><a href={company.mapsUrl} target="_blank" rel="noreferrer"><ExternalLink /></a></Button></TableCell></TableRow>)}</TableBody></Table></div>}</CardContent></Card>
     </main>
     <Sheet open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}><SheetContent className="w-full overflow-y-auto p-6 sm:max-w-lg">{selected && <><SheetHeader className="px-0 pt-6"><Badge className="mb-3 w-fit rounded-full bg-red-50 text-red-700 hover:bg-red-50">Сайт отсутствует</Badge><SheetTitle className="text-2xl font-black tracking-tight">{selected.name}</SheetTitle><SheetDescription>{selected.categories.join(" · ") || "Категория не указана"}</SheetDescription></SheetHeader><div className="mt-8 space-y-3"><Detail icon={<MapPin />} label="Адрес" value={selected.address} /><Detail icon={<Phone />} label="Телефоны" value={selected.phones.join(", ") || "Не указаны"} /><Detail icon={<Settings2 />} label="Режим работы" value={selected.hours || "Не указан"} />{selected.coordinates && <Detail icon={<MapPin />} label="Координаты" value={selected.coordinates.join(", ")} />}</div><Button className="mt-6 w-full rounded-xl" asChild><a href={selected.mapsUrl} target="_blank" rel="noreferrer"><ExternalLink /> Открыть в Яндекс Картах</a></Button></>}</SheetContent></Sheet>
   </div>;
