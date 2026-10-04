@@ -94,7 +94,7 @@ export default function Home() {
     const anchor = document.createElement("a"); anchor.href = url; anchor.download = `companies-without-websites-${city.toLowerCase().replaceAll(" ", "-")}.csv`; anchor.click(); URL.revokeObjectURL(url); toast.success("CSV-файл сформирован");
   }
 
-  return <div className="min-h-screen bg-background text-foreground">
+  return <div className="min-h-screen bg-background text-foreground" suppressHydrationWarning>
     <Toaster richColors position="bottom-center" />
     <header className="border-b border-border/80 bg-background/90 backdrop-blur-xl"><div className="mx-auto flex h-18 max-w-[1480px] items-center justify-between px-4 sm:px-6 lg:px-8">
       <div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm"><Building2 className="size-5" /></div><div><div className="text-base font-extrabold tracking-tight">НетСайта</div><div className="text-xs text-muted-foreground">Лиды из Яндекс Карт</div></div></div>
