@@ -1,4 +1,12 @@
-# vinext-starter
+# Поиск Яндекс Карточек
+
+Поиск организаций без сайта через API Яндекс Карт, сохранение компаний и экспорт CSV.
+
+Рабочий сайт: https://inwedo.ru/
+
+Для обычного хостинга Beget используется React-сборка и PHP 8.3 API с SQLite. Инструкция по сборке, размещению и сохранению базы: [deploy/beget/README.md](deploy/beget/README.md). Команда сборки: `npm run build:beget`. Исходный вариант Next/Vinext также сохранён ниже.
+
+## Vinext starter documentation
 
 A clean full-stack starter running on [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and Drizzle support.
 

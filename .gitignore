@@ -47,3 +47,6 @@ next-env.d.ts
 /.codex/
 /outputs/
 /work/
+/beget-dist/
+/deploy/beget/private/config.php
+/deploy/beget/private/*.sqlite*

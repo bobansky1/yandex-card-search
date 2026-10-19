@@ -61,7 +61,7 @@ export default function Home() {
       const response = await fetch("/api/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ city: city.trim(), category: category.trim(), results: Number(limit), apiKey: apiKey.trim() || undefined }) });
       const payload = (await response.json()) as SearchResult & { error?: string; code?: string };
       if (!response.ok) { if (payload.code === "API_KEY_REQUIRED") setKeyDialogOpen(true); if (payload.code === "YANDEX_403") setKeyValidated(false); throw new Error(payload.error || "Не удалось выполнить поиск"); }
-      setKeyValidated(true); setResult(payload); await loadSavedCompanies(); setProgress(100); toast.success(payload.cached ? "Показаны сохранённые данные — запрос к API не выполнен" : `Найдено без сайта: ${payload.withoutWebsite}. Результат сохранён.`);
+      if (!payload.cached) setKeyValidated(true); setResult(payload); await loadSavedCompanies(); setProgress(100); toast.success(payload.cached ? "Показаны сохранённые данные — запрос к API не выполнен" : `Найдено без сайта: ${payload.withoutWebsite}. Результат сохранён.`);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Неизвестная ошибка"); }
     finally { window.clearInterval(timer); window.setTimeout(() => setProgress(0), 450); setLoading(false); }
   }
