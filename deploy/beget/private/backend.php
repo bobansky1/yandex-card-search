@@ -101,6 +101,19 @@ function saveSearch(PDO $db, string $key, string $city, string $category, array 
     }
 }
 
+function upstreamDetail(string $response, string $apiKey): string
+{
+    $payload = json_decode($response, true);
+    $message = is_array($payload) ? ($payload['message'] ?? $payload['error'] ?? '') : '';
+    if (!is_string($message)) return '';
+    // Upstream errors may echo request parameters. Never return the credential.
+    if ($apiKey !== '') {
+        $message = str_replace(array_unique([$apiKey, rawurlencode($apiKey), urlencode($apiKey)]), '[скрыто]', $message);
+    }
+    $message = preg_replace('/[\x00-\x1F\x7F]/u', ' ', strip_tags($message)) ?? '';
+    return mb_substr(trim($message), 0, 250);
+}
+
 function handleRequest(): never
 {
     ini_set('display_errors', '0');
@@ -171,10 +184,12 @@ function handleRequest(): never
         curl_close($curl);
         if ($status < 200 || $status >= 300) {
             $message = match ($status) {
-                403 => 'Яндекс вернул 403: проверьте ключ продукта «API Поиска по организациям». Активация нового ключа занимает до 15 минут; при ограничении по домену разрешите inwedo.ru.',
+                403 => 'Яндекс отклонил доступ (403). Проверьте привязку ключа к API Поиска по организациям, статус продукта и ограничения по домену/IP.',
                 429 => 'Превышен лимит запросов Яндекс API. Повторите позже.',
                 default => 'Яндекс API вернул ошибку ' . $status,
             };
+            $detail = upstreamDetail($response, $apiKey);
+            if ($detail !== '') $message .= ' Ответ Яндекса: ' . $detail;
             jsonResponse(['error' => $message, 'code' => 'YANDEX_' . $status], $status >= 400 && $status <= 599 ? $status : 502);
         }
         try { $payload = json_decode($response, true, 512, JSON_THROW_ON_ERROR); }

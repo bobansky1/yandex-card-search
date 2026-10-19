@@ -10,6 +10,10 @@ function check(bool $ok, string $message): void
 
 $temporary = tempnam(sys_get_temp_dir(), 'yandex-test-');
 try {
+    check(upstreamDetail('{"message":"Invalid apikey"}', 'test-secret') === 'Invalid apikey', 'Show upstream rejection reason');
+    check(upstreamDetail('{"message":"Rejected test-secret"}', 'test-secret') === 'Rejected [скрыто]', 'Redact key from upstream message');
+    check(upstreamDetail('{"message":"Rejected key%2Fsecret"}', 'key/secret') === 'Rejected [скрыто]', 'Redact encoded key');
+    check(upstreamDetail('<html>error</html>', 'test-secret') === '', 'Ignore non-JSON upstream errors');
     $db = openStore($temporary);
     $key = searchKey(' МОСКВА ', 'Ремонт   обуви', 50);
     check($key === searchKey('москва', 'ремонт обуви', 50), 'Russian search normalization');
