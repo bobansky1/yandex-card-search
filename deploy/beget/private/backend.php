@@ -105,6 +105,11 @@ function upstreamDetail(string $response, string $apiKey): string
 {
     $payload = json_decode($response, true);
     $message = is_array($payload) ? ($payload['message'] ?? $payload['error'] ?? '') : '';
+    // Yandex's gateway can return XML on auth failures even with Accept: application/json.
+    // Read only the message text; do not resolve XML entities or external resources.
+    if ($message === '' && preg_match('~<message>(.*?)</message>~si', $response, $match)) {
+        $message = html_entity_decode(strip_tags($match[1]), ENT_QUOTES | ENT_XML1, 'UTF-8');
+    }
     if (!is_string($message)) return '';
     // Upstream errors may echo request parameters. Never return the credential.
     if ($apiKey !== '') {

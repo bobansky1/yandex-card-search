@@ -14,6 +14,8 @@ try {
     check(upstreamDetail('{"message":"Rejected test-secret"}', 'test-secret') === 'Rejected [скрыто]', 'Redact key from upstream message');
     check(upstreamDetail('{"message":"Rejected key%2Fsecret"}', 'key/secret') === 'Rejected [скрыто]', 'Redact encoded key');
     check(upstreamDetail('<html>error</html>', 'test-secret') === '', 'Ignore non-JSON upstream errors');
+    check(upstreamDetail('<?xml version="1.0"?><error><message>Invalid api key</message></error>', 'test-secret') === 'Invalid api key', 'Read XML gateway error');
+    check(upstreamDetail('<error><message>Rejected key&amp;secret</message></error>', 'key&secret') === 'Rejected [скрыто]', 'Redact XML-encoded key');
     $db = openStore($temporary);
     $key = searchKey(' МОСКВА ', 'Ремонт   обуви', 50);
     check($key === searchKey('москва', 'ремонт обуви', 50), 'Russian search normalization');
