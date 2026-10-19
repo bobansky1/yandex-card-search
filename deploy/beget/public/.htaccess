@@ -3,7 +3,7 @@ DirectoryIndex index.html
 AddDefaultCharset UTF-8
 
 RewriteEngine On
-RewriteRule ^api/(?:search|companies|health)/?$ api.php [END]
+RewriteRule ^api/(?:search|companies|health|usage)/?$ api.php [END]
 RewriteRule ^api(?:/.*)?$ api.php [END]
 
 <FilesMatch "^(?:\.|.*\.(?:sqlite|db|log|env|bak))">

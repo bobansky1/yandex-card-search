@@ -11,6 +11,8 @@ Requirements: PHP 8.1+ with cURL, mbstring, PDO and PDO SQLite; Apache with mod_
 
 The first API call creates `private/company-store.sqlite`. API credentials entered through the interface are used for the request and are not persisted. An optional server key can be configured with `YANDEX_MAPS_API_KEY` or ignored `private/config.php` returning `['yandex_api_key' => '...']`. Keep that file out of Git and future deployment archives.
 
+The PHP deployment enforces a shared daily budget of 100 requested cards for the entire site. SQLite reserves the selected count atomically before each uncached Yandex call, including calls that fail, and resets the budget at midnight in Europe/Moscow. Cached results and missing-key/invalid-input requests do not consume it. `GET /api/usage` exposes the current budget without making a Yandex request. The counter starts when this feature is installed; earlier API calls are not reconstructed. Calls made outside this site are outside this limit.
+
 Back up `private/company-store.sqlite` using SQLite's backup command or while writes are paused. Subsequent deployments must preserve the database, optional configuration, and any `-wal`/`-shm` files. The app's company list and search cache are shared by visitors, matching the original app.
 
 To migrate the original JSON store, place `import-store.php` beside `private/` outside the document root and run `php8.3 import-store.php /private/path/company-store.json`. The importer keeps existing SQLite rows and preserves source timestamps. Do not upload the JSON store into `public_html/` or Git.

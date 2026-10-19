@@ -22,6 +22,7 @@ import { categories } from "@/lib/categories";
 type Company = { id: string; name: string; address: string; postalCode: string; categories: string[]; phones: string[]; hours: string; coordinates: [number, number] | null; mapsUrl: string };
 type StoredCompany = Company & { cities: string[]; searchCategories: string[]; firstSeenAt: string; lastCheckedAt: string };
 type SearchResult = { companies: Company[]; scanned: number; totalFound: number; withoutWebsite: number; query: string; usedServerKey: boolean; cached?: boolean; checkedAt?: string };
+type DailyUsage = { date: string; limit: number; used: number; remaining: number; resetsAt: string; timezone: string };
 
 export default function Home() {
   const [city, setCity] = useState("Москва");
@@ -34,6 +35,7 @@ export default function Home() {
   const [keyDraft, setKeyDraft] = useState("");
   const [keyDialogOpen, setKeyDialogOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [usage, setUsage] = useState<DailyUsage | null>(null);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
   const [result, setResult] = useState<SearchResult | null>(null);
@@ -50,6 +52,17 @@ export default function Home() {
   }).sort((a, b) => savedSort === "name" ? a.name.localeCompare(b.name, "ru") : savedSort === "oldest" ? a.firstSeenAt.localeCompare(b.firstSeenAt) : b.lastCheckedAt.localeCompare(a.lastCheckedAt)), [savedCompanies, savedSearch, savedCategory, savedSort]);
 
   async function loadSavedCompanies() { const response = await fetch("/api/companies", { cache: "no-store" }); if (response.ok) setSavedCompanies(((await response.json()) as { companies: StoredCompany[] }).companies); }
+  async function loadUsage() {
+    try { const response = await fetch("/api/usage", { cache: "no-store" }); if (response.ok) setUsage(await response.json() as DailyUsage); }
+    catch { /* The server still enforces the limit when the counter cannot be refreshed. */ }
+  }
+  useEffect(() => {
+    void loadUsage();
+    const timer = window.setInterval(() => void loadUsage(), 60000);
+    const refresh = () => void loadUsage();
+    window.addEventListener("focus", refresh);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", refresh); };
+  }, []);
   useEffect(() => { const timer = window.setTimeout(() => void loadSavedCompanies(), 0); return () => window.clearTimeout(timer); }, []);
 
   async function runSearch(event?: FormEvent) {
@@ -63,7 +76,7 @@ export default function Home() {
       if (!response.ok) { if (payload.code === "API_KEY_REQUIRED") setKeyDialogOpen(true); if (payload.code === "YANDEX_403") setKeyValidated(false); throw new Error(payload.error || "Не удалось выполнить поиск"); }
       if (!payload.cached) setKeyValidated(true); setResult(payload); await loadSavedCompanies(); setProgress(100); toast.success(payload.cached ? "Показаны сохранённые данные — запрос к API не выполнен" : `Найдено без сайта: ${payload.withoutWebsite}. Результат сохранён.`);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Неизвестная ошибка"); }
-    finally { window.clearInterval(timer); window.setTimeout(() => setProgress(0), 450); setLoading(false); }
+    finally { window.clearInterval(timer); window.setTimeout(() => setProgress(0), 450); setLoading(false); void loadUsage(); }
   }
 
   function saveKey() {
@@ -93,7 +106,7 @@ export default function Home() {
         <div className="grid content-start gap-2"><Label>Категория или услуга</Label><Popover open={categoryOpen} onOpenChange={(open) => { setCategoryOpen(open); if (open) setCategorySearch(""); }}><PopoverTrigger asChild><Button type="button" variant="outline" role="combobox" aria-expanded={categoryOpen} className="h-11 w-full justify-between px-3 font-normal">{category || <span className="text-muted-foreground">Выберите категорию</span>}<ChevronsUpDown className="size-4 opacity-50" /></Button></PopoverTrigger><PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-0"><Command shouldFilter><CommandInput value={categorySearch} onValueChange={setCategorySearch} placeholder="Найти или ввести свою…" onKeyDown={(event) => { if (event.key === "Enter" && categorySearch.trim()) { event.preventDefault(); setCategory(categorySearch.trim()); setCategoryOpen(false); } }} /><CommandList><CommandEmpty><button type="button" className="w-full px-3 py-2 text-left" onClick={() => { setCategory(categorySearch.trim()); setCategoryOpen(false); }}>Использовать «{categorySearch}»</button></CommandEmpty><CommandGroup heading={`Все категории (${categories.length})`}>{categories.map((item) => <CommandItem key={item} value={item} onSelect={() => { setCategory(item); setCategoryOpen(false); }}><Check className={`size-4 ${category === item ? "opacity-100" : "opacity-0"}`} />{item}</CommandItem>)}</CommandGroup></CommandList></Command></PopoverContent></Popover><p className="h-4 text-xs text-muted-foreground">Выберите из списка или введите свою</p></div>
         <div className="grid content-start gap-2"><Label>Проверить карточек</Label><Select value={limit} onValueChange={setLimit}><SelectTrigger className="h-11 w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="10">10</SelectItem><SelectItem value="25">25</SelectItem><SelectItem value="50">50</SelectItem></SelectContent></Select><p className="h-4 text-xs text-muted-foreground">До 50 за запрос</p></div>
         <div className="grid content-start gap-2"><Label className="invisible">Запустить</Label><Button disabled={loading} size="lg" className="h-11 px-7 font-semibold"><Search /> {loading ? "Ищем…" : "Найти"}</Button><p className="h-4" /></div>
-      </div>{loading && <div className="mt-5"><Progress value={progress} className="h-1.5" /><p className="mt-2 text-xs text-muted-foreground">Получаем карточки и проверяем поле сайта…</p></div>}</form>
+      </div><div className="mt-5 rounded-lg border bg-muted/30 p-3 text-sm" aria-live="polite"><div className="flex flex-wrap items-center justify-between gap-2 font-medium"><span>Дневной лимит: {usage ? `${usage.used} / ${usage.limit}` : "до 100"} карточек</span>{usage && <span>Осталось: {usage.remaining}</span>}</div><p className="mt-1 text-xs leading-5 text-muted-foreground">Общий для сайта. Сброс в 00:00 по Москве. Учитывается выбранное количество карточек при отправке запроса, в том числе при ошибке API. Поиски из кеша лимит не расходуют.</p>{usage?.remaining === 0 && <p className="mt-2 text-sm font-medium">На сегодня доступны только сохранённые поиски.</p>}</div>{loading && <div className="mt-5"><Progress value={progress} className="h-1.5" /><p className="mt-2 text-xs text-muted-foreground">Получаем карточки и проверяем поле сайта…</p></div>}</form>
       {error && <Alert variant="destructive" className="mb-6 rounded-2xl"><CircleAlert /><AlertTitle>Поиск не выполнен</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
       <section className="grid gap-3 sm:grid-cols-4"><Metric label="Проверено карточек" value={result?.scanned ?? "—"} /><Metric label="Без сайта" value={result?.withoutWebsite ?? "—"} accent /><Metric label="С телефоном" value={result ? phoneCount : "—"} /><Metric label="Сохранено уникальных" value={savedCompanies.length} /></section>
       <Card className="mt-6 overflow-hidden rounded-3xl border-border/80 py-0 shadow-sm"><div className="flex flex-col gap-3 border-b px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6"><div><h2 className="font-extrabold">Результаты</h2><p className="text-sm text-muted-foreground">{result ? `Запрос «${result.query}» · Яндекс нашёл ${result.totalFound}` : "Запустите поиск, чтобы получить реальные организации"}</p></div><Button variant="outline" onClick={exportCsv} disabled={!result?.companies.length} className="rounded-xl"><Download /> Скачать CSV</Button></div><CardContent className="p-0">

@@ -19,7 +19,42 @@ function openStore(?string $path = null): PDO
     $db->exec('PRAGMA journal_mode = WAL');
     $db->exec('CREATE TABLE IF NOT EXISTS companies (id TEXT PRIMARY KEY, payload TEXT NOT NULL)');
     $db->exec('CREATE TABLE IF NOT EXISTS searches (search_key TEXT PRIMARY KEY, payload TEXT NOT NULL, checked_at TEXT NOT NULL)');
+    $db->exec('CREATE TABLE IF NOT EXISTS daily_usage (usage_date TEXT PRIMARY KEY, cards INTEGER NOT NULL CHECK(cards >= 0 AND cards <= 100))');
     return $db;
+}
+
+function dailyUsage(PDO $db, ?DateTimeImmutable $now = null): array
+{
+    $now = ($now ?? new DateTimeImmutable('now'))->setTimezone(new DateTimeZone('Europe/Moscow'));
+    $date = $now->format('Y-m-d');
+    $query = $db->prepare('SELECT cards FROM daily_usage WHERE usage_date = ?');
+    $query->execute([$date]);
+    $used = (int)($query->fetchColumn() ?: 0);
+    return ['date' => $date, 'limit' => 100, 'used' => $used, 'remaining' => max(0, 100 - $used),
+        'resetsAt' => $now->modify('tomorrow')->setTime(0, 0)->format(DateTimeInterface::ATOM),
+        'timezone' => 'Europe/Moscow'];
+}
+
+function reserveDailyCards(PDO $db, int $cards, ?DateTimeImmutable $now = null): array
+{
+    if ($cards < 1 || $cards > 50) throw new InvalidArgumentException('Expected 1 to 50 cards');
+    $db->exec('BEGIN IMMEDIATE');
+    try {
+        $usage = dailyUsage($db, $now);
+        if ($cards > $usage['remaining']) {
+            $db->exec('COMMIT');
+            return ['allowed' => false, 'usage' => $usage];
+        }
+        $query = $db->prepare('INSERT INTO daily_usage (usage_date, cards) VALUES (?, ?) ON CONFLICT(usage_date) DO UPDATE SET cards = daily_usage.cards + excluded.cards');
+        $query->execute([$usage['date'], $cards]);
+        $usage['used'] += $cards;
+        $usage['remaining'] -= $cards;
+        $db->exec('COMMIT');
+        return ['allowed' => true, 'usage' => $usage];
+    } catch (Throwable $error) {
+        $db->exec('ROLLBACK');
+        throw $error;
+    }
 }
 
 function searchKey(string $city, string $category, int $results): string
@@ -125,7 +160,7 @@ function handleRequest(): never
     try {
         $path = rtrim(parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/', '/');
         $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-        $allowed = ['/api/health' => 'GET', '/api/companies' => 'GET', '/api/search' => 'POST'];
+        $allowed = ['/api/health' => 'GET', '/api/companies' => 'GET', '/api/usage' => 'GET', '/api/search' => 'POST'];
         if (!isset($allowed[$path])) jsonResponse(['error' => 'Не найдено'], 404);
         if ($method !== $allowed[$path]) {
             header('Allow: ' . $allowed[$path]);
@@ -133,6 +168,7 @@ function handleRequest(): never
         }
         $db = openStore();
         if ($path === '/api/health') jsonResponse(['ok' => true, 'backend' => 'php', 'database' => 'sqlite']);
+        if ($path === '/api/usage') jsonResponse(dailyUsage($db));
         if ($path === '/api/companies') {
             $companies = [];
             foreach ($db->query('SELECT payload FROM companies ORDER BY rowid') as $row) {
@@ -180,6 +216,17 @@ function handleRequest(): never
             CURLOPT_HTTPHEADER => $headers, CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
         ]);
+        // Reserve before any upstream request, under a SQLite write lock shared by all visitors.
+        // Keep the reservation on errors: the upstream may already have counted the request.
+        $reservation = reserveDailyCards($db, $results);
+        if (!$reservation['allowed']) {
+            curl_close($curl);
+            $usage = $reservation['usage'];
+            jsonResponse([
+                'error' => 'Дневной лимит — 100 карточек. Осталось на сегодня: ' . $usage['remaining'] . '. Уменьшите количество карточек или повторите после 00:00 по Москве. Сохранённые поиски доступны без ограничений.',
+                'code' => 'DAILY_LIMIT_EXCEEDED', 'usage' => $usage,
+            ], 429);
+        }
         $response = curl_exec($curl);
         $status = (int)curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
         if ($response === false || $status === 0) {
